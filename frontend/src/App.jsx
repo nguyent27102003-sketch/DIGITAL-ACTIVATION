@@ -53,14 +53,17 @@ export default function App() {
   const [actionReason, setActionReason] = useState('');
 
   // Campaign & Job State
+  const [ruleConfirmed, setRuleConfirmed] = useState(true);
   const [posterFile, setPosterFile] = useState(null);
   const [isExtractingPoster, setIsExtractingPoster] = useState(false);
   const [campaignName, setCampaignName] = useState('Chiến Dịch Activation Mới');
   const [rules, setRules] = useState({
     minVideoDurationSeconds: 30,
     minLivestreamDurationSeconds: 900,
+    requiredHashtags: ['#Activation', '#FBEval'],
+    requiredTags: ['@FanpageOfficial'],
     hashtags: ['#Activation', '#FBEval'],
-    fanpageTags: ['@FanpageOfficical'],
+    fanpageTags: ['@FanpageOfficial'],
     productNames: ['Sản Phẩm A'],
     allowPhotosForLivestream: false
   });
@@ -608,7 +611,7 @@ export default function App() {
                   <label className="text-xs text-slate-400 mb-1 block">Dòng Sản Phẩm Được Duyệt</label>
                   <input 
                     type="text" 
-                    value={rules.productNames.join(', ')}
+                    value={(rules?.productNames || []).join(', ')}
                     onChange={(e) => setRules({ ...rules, productNames: e.target.value.split(',').map(s => s.trim()) })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                   />
@@ -618,8 +621,8 @@ export default function App() {
                   <label className="text-xs text-slate-400 mb-1 block">Hashtag Bắt Buộc (ĐK2)</label>
                   <input 
                     type="text" 
-                    value={rules.requiredHashtags.join(', ')}
-                    onChange={(e) => setRules({ ...rules, requiredHashtags: e.target.value.split(',').map(s => s.trim()) })}
+                    value={(rules?.requiredHashtags || rules?.hashtags || []).join(', ')}
+                    onChange={(e) => setRules({ ...rules, requiredHashtags: e.target.value.split(',').map(s => s.trim()), hashtags: e.target.value.split(',').map(s => s.trim()) })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -628,8 +631,8 @@ export default function App() {
                   <label className="text-xs text-slate-400 mb-1 block">Tag Fanpage Bắt Buộc (ĐK2)</label>
                   <input 
                     type="text" 
-                    value={rules.requiredTags.map(t => typeof t === 'string' ? t : t.displayName).join(', ')}
-                    onChange={(e) => setRules({ ...rules, requiredTags: e.target.value.split(',').map(s => s.trim()) })}
+                    value={(rules?.requiredTags || rules?.fanpageTags || []).map(t => typeof t === 'string' ? t : (t?.displayName || t?.name || '')).join(', ')}
+                    onChange={(e) => setRules({ ...rules, requiredTags: e.target.value.split(',').map(s => s.trim()), fanpageTags: e.target.value.split(',').map(s => s.trim()) })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
