@@ -108,15 +108,17 @@ export async function inspectExcelFile(filePath) {
 
     const headerRow = worksheet.getRow(detectedHeaderRow);
     const columnsMapping = {};
+    const rawHeaders = {};
     const sessions = [];
 
     const sessionRegex = /(phiên|phien|session)\s*(\d+)/i;
     let isMultiSession = false;
 
     headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-      const headerText = String(cell.value || '').trim();
+      const headerText = extractCellValueText(cell.value) || String(cell.value || '').trim();
       const normText = normalizeHeader(headerText);
       const colLetter = worksheet.getColumn(colNumber).letter;
+      rawHeaders[colLetter] = headerText;
 
       const sessionMatch = headerText.match(sessionRegex);
       if (sessionMatch) {
@@ -153,6 +155,7 @@ export async function inspectExcelFile(filePath) {
       dataStartRow: detectedHeaderRow + 1,
       mappingType: isMultiSession ? 'MULTI_SESSION' : 'SINGLE_SESSION',
       columnsMapping,
+      rawHeaders,
       sessions: sessions.sort((a, b) => a.sessionNum - b.sessionNum)
     });
   }

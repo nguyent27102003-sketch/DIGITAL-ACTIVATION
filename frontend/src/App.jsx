@@ -1030,14 +1030,20 @@ export default function App() {
               </div>
 
               <div className="border-t border-slate-800 pt-4">
-                <h4 className="font-semibold text-sm text-slate-300 mb-2">Các Cột Nhận Diện:</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                  {Object.entries(currentSheet.columnsMapping || {}).map(([key, col]) => (
-                    <div key={key} className="bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex justify-between items-center">
-                      <span className="text-slate-400 font-mono capitalize">{key}:</span>
-                      <strong className="text-blue-400 font-mono">Cột {col}</strong>
-                    </div>
-                  ))}
+                <h4 className="font-semibold text-sm text-slate-300 mb-2">Các Cột Nhận Diện Từ Tiêu Đề File Excel Gốc:</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                  {Object.entries(currentSheet.columnsMapping || {}).map(([key, col]) => {
+                    const excelHeaderText = currentSheet.rawHeaders?.[col] || key;
+                    return (
+                      <div key={key} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex justify-between items-center gap-2">
+                        <div className="overflow-hidden truncate">
+                          <span className="text-slate-200 font-medium block truncate" title={excelHeaderText}>"{excelHeaderText}"</span>
+                          <span className="text-slate-500 font-mono text-[10px]">({key})</span>
+                        </div>
+                        <strong className="text-blue-400 font-mono bg-blue-950/80 px-2 py-1 rounded border border-blue-800/60 shrink-0">Cột {col}</strong>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
