@@ -311,6 +311,9 @@ export default function App() {
         alert('AI đã trích xuất thành công thể lệ từ Poster. Vui lòng kiểm tra và xác nhận lại bộ luật.');
       } else {
         alert('Lỗi: ' + data.error);
+        if (data.error && data.error.includes('Chưa cấu hình API Key')) {
+          setShowSettings(true);
+        }
       }
     } catch (err) {
       alert('Không thể bóc tách Poster: ' + err.message);
@@ -804,10 +807,12 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+            onClick={() => setShowSettings(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-md transition"
+            title="Cài đặt Cấu hình AI API Keys"
           >
-            <Settings className="w-5 h-5 text-slate-300" />
+            <Settings className="w-4 h-4 text-white" />
+            <span>⚙️ Cài Đặt AI</span>
           </button>
         </div>
       </header>
@@ -831,11 +836,22 @@ export default function App() {
                 </p>
               </div>
 
-              <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white font-medium px-5 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-blue-600/30 transition shrink-0">
-                <Upload className="w-5 h-5" />
-                <span>{isExtractingPoster ? 'Đang đọc Poster...' : 'Chọn ảnh Poster'}</span>
-                <input type="file" accept="image/*" onChange={handleExtractPosterRules} className="hidden" />
-              </label>
+              <div className="flex items-center space-x-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(true)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium px-4 py-3 rounded-xl flex items-center space-x-2 border border-slate-700 text-xs transition"
+                >
+                  <Settings className="w-4 h-4 text-indigo-400" />
+                  <span>Cấu Hình AI Key</span>
+                </button>
+
+                <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white font-medium px-5 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-blue-600/30 transition">
+                  <Upload className="w-5 h-5" />
+                  <span>{isExtractingPoster ? 'Đang đọc Poster...' : 'Chọn ảnh Poster'}</span>
+                  <input type="file" accept="image/*" onChange={handleExtractPosterRules} className="hidden" />
+                </label>
+              </div>
             </div>
 
             {/* Campaign Rule Confirmation Box */}
