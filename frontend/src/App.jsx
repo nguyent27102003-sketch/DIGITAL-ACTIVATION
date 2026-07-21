@@ -887,6 +887,72 @@ export default function App() {
         </div>
       </header>
 
+      {/* Strict Sequential 3-Step Wizard Navigation Bar */}
+      <div className="bg-slate-900 border-b border-slate-800 px-6 py-3.5 sticky top-[73px] z-30 shadow-lg">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
+          <div className="flex items-center space-x-2 text-xs font-semibold text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
+            <span>QUY TRÌNH 3 BƯỚC THỦ TỤC THỰC THI THỂ LỆ</span>
+          </div>
+
+          <div className="flex items-center space-x-3 text-xs font-bold">
+            {/* Step 1 Indicator */}
+            <div 
+              onClick={() => { if (step > 1) setStep(1); }}
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl border transition ${
+                step === 1 
+                  ? 'bg-blue-600/20 border-blue-500 text-blue-300 shadow-md shadow-blue-900/40' 
+                  : (excelFileId ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300 cursor-pointer hover:bg-emerald-900/60' : 'bg-slate-900 border-slate-800 text-slate-500')
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ${
+                step === 1 ? 'bg-blue-600 text-white' : (excelFileId ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400')
+              }`}>
+                {excelFileId ? '✓' : '1'}
+              </span>
+              <span>1. Poster & File Excel</span>
+            </div>
+
+            <span className="text-slate-600 font-bold">➔</span>
+
+            {/* Step 2 Indicator */}
+            <div 
+              onClick={() => { if (excelFileId && step > 2) setStep(2); }}
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl border transition ${
+                step === 2 
+                  ? 'bg-blue-600/20 border-blue-500 text-blue-300 shadow-md shadow-blue-900/40' 
+                  : (activeJobId ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300 cursor-pointer hover:bg-emerald-900/60' : 'bg-slate-900 border-slate-800 text-slate-500 opacity-60')
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ${
+                step === 2 ? 'bg-blue-600 text-white' : (activeJobId ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400')
+              }`}>
+                {activeJobId ? '✓' : '2'}
+              </span>
+              <span>2. Mapping Cột</span>
+            </div>
+
+            <span className="text-slate-600 font-bold">➔</span>
+
+            {/* Step 3 Indicator */}
+            <div 
+              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl border transition ${
+                step === 3 
+                  ? 'bg-blue-600/20 border-blue-500 text-blue-300 shadow-md shadow-blue-900/40' 
+                  : 'bg-slate-900 border-slate-800 text-slate-500 opacity-60'
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ${
+                step === 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
+              }`}>
+                3
+              </span>
+              <span>3. Tiến Trình Realtime</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Container */}
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
 
