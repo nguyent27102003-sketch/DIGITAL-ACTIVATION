@@ -169,7 +169,11 @@ app.post('/api/save-config', (req, res) => {
   if (geminiApiKey !== undefined) updates.GEMINI_API_KEY = geminiApiKey;
   if (openaiApiKey !== undefined) updates.OPENAI_API_KEY = openaiApiKey;
   if (nineRouterApiKey !== undefined) updates.NINE_ROUTER_API_KEY = nineRouterApiKey;
-  if (nineRouterBaseUrl !== undefined) updates.NINE_ROUTER_BASE_URL = nineRouterBaseUrl;
+  if (nineRouterBaseUrl !== undefined && nineRouterBaseUrl) {
+    let cleanUrl = nineRouterBaseUrl.trim().replace(/\/+$/, '');
+    if (!cleanUrl.endsWith('/v1')) cleanUrl += '/v1';
+    updates.NINE_ROUTER_BASE_URL = cleanUrl;
+  }
 
   try {
     updateEnvFile(updates);

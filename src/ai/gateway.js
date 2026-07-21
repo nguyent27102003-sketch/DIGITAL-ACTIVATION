@@ -19,6 +19,14 @@ function imageToBase64DataUrl(filePath) {
   return `data:${mime};base64,${base64}`;
 }
 
+function normalizeNineRouterUrl(rawUrl) {
+  let url = (rawUrl || 'http://localhost:20128/v1').trim().replace(/\/+$/, '');
+  if (!url.endsWith('/v1')) {
+    url += '/v1';
+  }
+  return url;
+}
+
 /**
  * Universal AI Provider Gateway supporting:
  * 1. Google Gemini (Native SDK)
@@ -36,7 +44,7 @@ export class AIProviderGateway {
     this.geminiApiKey = process.env.GEMINI_API_KEY || '';
     this.openaiApiKey = process.env.OPENAI_API_KEY || '';
     this.nineRouterApiKey = process.env.NINE_ROUTER_API_KEY || process.env.NINEROUTER_API_KEY || '9router-local';
-    this.nineRouterBaseUrl = (process.env.NINE_ROUTER_BASE_URL || 'http://localhost:20128/v1').replace(/\/+$/, '');
+    this.nineRouterBaseUrl = normalizeNineRouterUrl(process.env.NINE_ROUTER_BASE_URL);
   }
 
   /**
@@ -47,7 +55,7 @@ export class AIProviderGateway {
     const geminiKey = customConfig?.geminiApiKey || this.geminiApiKey;
     const openaiKey = customConfig?.openaiApiKey || this.openaiApiKey;
     const routerKey = customConfig?.nineRouterApiKey || this.nineRouterApiKey || '9router-local';
-    const routerBaseUrl = (customConfig?.nineRouterBaseUrl || this.nineRouterBaseUrl || 'http://localhost:20128/v1').replace(/\/+$/, '');
+    const routerBaseUrl = normalizeNineRouterUrl(customConfig?.nineRouterBaseUrl || this.nineRouterBaseUrl);
 
     try {
       if (provider === '9router') {
