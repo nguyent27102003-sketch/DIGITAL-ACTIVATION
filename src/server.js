@@ -54,6 +54,12 @@ app.use((req, res, next) => {
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ success: false, error: 'Dữ liệu JSON không hợp lệ.' });
+  }
+  next(err);
+});
 
 // Static file directories
 app.use('/screenshots', express.static(path.join(rootDir, 'public/screenshots')));
@@ -835,6 +841,18 @@ app.get('*', (req, res, next) => {
   } else {
     res.send('FBEVAL ACTIVATION V2.1 Backend Server is Running.');
   }
+});
+
+// Global API Error Handler - Guarantees API responses are ALWAYS valid JSON
+app.use((err, req, res, next) => {
+  console.error('[Express Global Error]:', err.stack || err);
+  if (req.path.startsWith('/api') || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || 'Lỗi xử lý server (Internal Error).'
+    });
+  }
+  res.status(500).send(`Server Error: ${err.message}`);
 });
 
 // Startup Initialization Sequence

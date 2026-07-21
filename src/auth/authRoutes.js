@@ -28,7 +28,7 @@ function clearSessionCookie(res) {
  * GET /api/auth/google
  * Initiates Google OAuth2 authentication flow or simulates for test/dev
  */
-router.get('/google', (req, res) => {
+router.get(['/google', '/auth/google'], (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const redirectUri = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
 
@@ -60,7 +60,7 @@ router.get('/google', (req, res) => {
  * GET /api/auth/google/callback
  * Handles Google OAuth2 redirect callback
  */
-router.get('/google/callback', async (req, res) => {
+router.get(['/google/callback', '/auth/google/callback'], async (req, res) => {
   const code = req.query.code;
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -122,7 +122,7 @@ router.get('/google/callback', async (req, res) => {
  * POST /api/auth/dev-login
  * Development & Testing helper endpoint to trigger Google Sign-In
  */
-router.post('/dev-login', (req, res) => {
+router.post(['/dev-login', '/auth/dev-login'], (req, res) => {
   const { email, displayName, googleSubject } = req.body;
   if (!email) {
     return res.status(400).json({ success: false, error: 'Email is required' });
@@ -162,7 +162,7 @@ router.post('/dev-login', (req, res) => {
 /**
  * POST /api/auth/logout
  */
-router.post('/logout', requireAuthentication, (req, res) => {
+router.post(['/logout', '/auth/logout'], requireAuthentication, (req, res) => {
   if (req.sessionToken) {
     revokeSession(req.sessionToken);
     createAuthAuditLog('USER_LOGOUT', req.user.id, null, 'User logged out');
@@ -174,7 +174,7 @@ router.post('/logout', requireAuthentication, (req, res) => {
 /**
  * GET /api/auth/me
  */
-router.get('/me', requireAuthentication, (req, res) => {
+router.get(['/me', '/auth/me'], requireAuthentication, (req, res) => {
   const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id);
   if (!user) {
     return res.status(404).json({ success: false, error: 'USER_NOT_FOUND' });
