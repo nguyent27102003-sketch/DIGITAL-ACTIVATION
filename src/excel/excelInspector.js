@@ -32,11 +32,30 @@ const ALIASES = {
 };
 
 /**
+ * Safely extracts plain text from ExcelJS cell values (supports string, hyperlink object, formula object, richText, numbers).
+ */
+function extractCellValueText(cellValue) {
+  if (cellValue === null || cellValue === undefined) return '';
+  if (typeof cellValue === 'string') return cellValue.trim();
+  if (typeof cellValue === 'number' || typeof cellValue === 'boolean') return String(cellValue);
+  if (typeof cellValue === 'object') {
+    if (cellValue.hyperlink) return String(cellValue.text || cellValue.hyperlink).trim();
+    if (cellValue.text) return String(cellValue.text).trim();
+    if (cellValue.result !== undefined && cellValue.result !== null) return String(cellValue.result).trim();
+    if (cellValue.richText && Array.isArray(cellValue.richText)) {
+      return cellValue.richText.map(rt => rt.text || '').join('').trim();
+    }
+  }
+  return String(cellValue).trim();
+}
+
+/**
  * Normalizes text for fuzzy matching.
  */
 function normalizeHeader(str) {
-  if (!str) return '';
-  return String(str)
+  const text = extractCellValueText(str);
+  if (!text) return '';
+  return text
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -168,17 +187,16 @@ export async function extractItemsFromExcel(filePath, mappingConfig) {
       const row = worksheet.getRow(r);
       if (row.cellCount === 0) continue;
 
-      const region = sheetConfig.columnsMapping.region ? String(row.getCell(sheetConfig.columnsMapping.region).value || '').trim() : null;
-      const customerCode = sheetConfig.columnsMapping.customerCode ? String(row.getCell(sheetConfig.columnsMapping.customerCode).value || '').trim() : null;
-      const customerName = sheetConfig.columnsMapping.customerName ? String(row.getCell(sheetConfig.columnsMapping.customerName).value || '').trim() : null;
-      const fanpageUrl = sheetConfig.columnsMapping.fanpageUrl ? String(row.getCell(sheetConfig.columnsMapping.fanpageUrl).value || '').trim() : null;
+      const region = sheetConfig.columnsMapping.region ? extractCellValueText(row.getCell(sheetConfig.columnsMapping.region).value) : null;
+      const customerCode = sheetConfig.columnsMapping.customerCode ? extractCellValueText(row.getCell(sheetConfig.columnsMapping.customerCode).value) : null;
+      const customerName = sheetConfig.columnsMapping.customerName ? extractCellValueText(row.getCell(sheetConfig.columnsMapping.customerName).value) : null;
+      const fanpageUrl = sheetConfig.columnsMapping.fanpageUrl ? extractCellValueText(row.getCell(sheetConfig.columnsMapping.fanpageUrl).value) : null;
 
       if (sheetConfig.mappingType === 'MULTI_SESSION' && sheetConfig.sessions.length > 0) {
         for (const session of sheetConfig.sessions) {
           const urlCol = session.columns.url || session.columns.submissionUrl;
           if (!urlCol) continue;
-          let rawUrl = String(row.getCell(urlCol).value || '').trim();
-          if (rawUrl && typeof rawUrl === 'object' && rawUrl.text) rawUrl = rawUrl.text;
+          let rawUrl = extractCellValueText(row.getCell(urlCol).value);
 
           if (rawUrl && (urlRegex.test(rawUrl) || rawUrl.includes('facebook.com') || rawUrl.includes('fb.com') || rawUrl.includes('tiktok.com'))) {
             let finalUrl = rawUrl;
@@ -200,8 +218,7 @@ export async function extractItemsFromExcel(filePath, mappingConfig) {
       } else {
         const urlCol = sheetConfig.columnsMapping.submissionUrl;
         if (!urlCol) continue;
-        let rawUrl = String(row.getCell(urlCol).value || '').trim();
-        if (rawUrl && typeof rawUrl === 'object' && rawUrl.text) rawUrl = rawUrl.text;
+        let rawUrl = extractCellValueText(row.getCell(urlCol).value);
 
         if (rawUrl && (urlRegex.test(rawUrl) || rawUrl.includes('facebook.com') || rawUrl.includes('fb.com') || rawUrl.includes('tiktok.com'))) {
           let finalUrl = rawUrl;

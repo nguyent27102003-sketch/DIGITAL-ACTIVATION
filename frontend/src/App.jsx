@@ -96,6 +96,11 @@ export default function App() {
   }, [showAdminUsers, adminTab]);
 
   const checkCurrentUserSession = async () => {
+    if (window.location.search.includes('logged_out=1')) {
+      setCurrentUser(null);
+      localStorage.removeItem('fbeval_user');
+      return;
+    }
     try {
       const res = await fetch('/api/auth/me');
       const data = await res.json();
@@ -121,7 +126,15 @@ export default function App() {
 
   const handleGoogleSignIn = (mockEmail = null) => {
     setAuthError('');
-    const targetEmail = mockEmail || 'nq.thien27@gmail.com';
+    if (configStatus?.googleConfigured && !mockEmail) {
+      window.location.href = '/api/auth/google';
+      return;
+    }
+    let targetEmail = mockEmail;
+    if (!targetEmail) {
+      targetEmail = window.prompt('Nhập Gmail đăng nhập (Ví dụ: nq.thien27@gmail.com để chọn Super Admin, hoặc gmail khác để thử nghiệm Phê Duyệt):', 'nq.thien27@gmail.com');
+      if (!targetEmail) return;
+    }
     fetch('/api/auth/dev-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -132,9 +145,7 @@ export default function App() {
       if (data.success) {
         setCurrentUser(data.user);
         localStorage.setItem('fbeval_user', JSON.stringify(data.user));
-        if (window.location.pathname !== '/') {
-          window.location.href = '/';
-        }
+        window.location.href = '/';
       } else {
         setAuthError(data.error);
       }
@@ -148,6 +159,7 @@ export default function App() {
     } catch (_) {}
     setCurrentUser(null);
     localStorage.removeItem('fbeval_user');
+    window.location.href = '/?logged_out=1';
   };
 
   const fetchUserList = async (tab = 'pending') => {
@@ -540,10 +552,11 @@ export default function App() {
 
           <button
             onClick={handleLogout}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-700 transition"
-            title="Đăng xuất"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800 text-xs transition font-medium"
+            title="Đăng xuất khỏi hệ thống"
           >
             <LogOut className="w-4 h-4" />
+            <span>Đăng Xuất</span>
           </button>
 
           <button 
