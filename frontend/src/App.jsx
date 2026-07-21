@@ -1030,14 +1030,30 @@ export default function App() {
               </div>
 
               <div className="border-t border-slate-800 pt-4">
-                <h4 className="font-semibold text-sm text-slate-300 mb-2">Các Cột Nhận Diện:</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                  {Object.entries(currentSheet.columnsMapping || {}).map(([key, col]) => (
-                    <div key={key} className="bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex justify-between">
-                      <span className="text-slate-400 capitalize">{key}:</span>
-                      <strong className="text-blue-400 font-mono">Cột {col}</strong>
-                    </div>
-                  ))}
+                <h4 className="font-semibold text-sm text-slate-300 mb-2">Các Cột Đã Nhận Diện Chuẩn Xác:</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                  {Object.entries(currentSheet.columnsMapping || {}).map(([key, col]) => {
+                    const labelMap = {
+                      region: 'Vùng / Miền',
+                      customerCode: 'Mã Khách Hàng',
+                      customerName: 'Tên Khách Hàng / Shop',
+                      fanpageUrl: 'Link Fanpage',
+                      submissionUrl: 'Link Bài Viết Dự Thi',
+                      views: 'Lượt Xem / Views',
+                      dk1: 'Điều Kiện 1 (Thời lượng Video/Live)',
+                      dk2: 'Điều Kiện 2 (Hashtag & Tag Fanpage)',
+                      proof1: 'Ảnh Bằng Chứng 1',
+                      proof2: 'Ảnh Bằng Chứng 2',
+                      note: 'Ghi Chú',
+                      result: 'Kết Quả Đánh Giá Tổng'
+                    };
+                    return (
+                      <div key={key} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                        <span className="text-slate-300 font-medium">{labelMap[key] || key}:</span>
+                        <strong className="text-blue-400 font-mono bg-blue-950/80 px-2 py-0.5 rounded border border-blue-800/60">Cột {col}</strong>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
