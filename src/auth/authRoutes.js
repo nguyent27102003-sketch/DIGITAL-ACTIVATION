@@ -53,20 +53,7 @@ router.get('/google', (req, res) => {
   const { token } = createSession(user.id, req.ip, req.get('User-Agent'));
   setSessionCookie(res, token);
 
-  return res.json({
-    success: true,
-    message: 'Google Sign-In thành công (Dev/Test Mode)',
-    token,
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.display_name,
-      avatarUrl: user.avatar_url,
-      role: user.role,
-      approvalStatus: user.approval_status,
-      accountStatus: user.account_status
-    }
-  });
+  return res.redirect('/');
 });
 
 /**

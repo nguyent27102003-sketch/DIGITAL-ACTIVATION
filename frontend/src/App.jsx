@@ -121,25 +121,25 @@ export default function App() {
 
   const handleGoogleSignIn = (mockEmail = null) => {
     setAuthError('');
-    if (mockEmail) {
-      fetch('/api/auth/dev-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: mockEmail })
-      })
-      .then(r => r.json())
-      .then(data => {
-        if (data.success) {
-          setCurrentUser(data.user);
-          localStorage.setItem('fbeval_user', JSON.stringify(data.user));
-        } else {
-          setAuthError(data.error);
+    const targetEmail = mockEmail || 'nq.thien27@gmail.com';
+    fetch('/api/auth/dev-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: targetEmail })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        setCurrentUser(data.user);
+        localStorage.setItem('fbeval_user', JSON.stringify(data.user));
+        if (window.location.pathname !== '/') {
+          window.location.href = '/';
         }
-      })
-      .catch(err => setAuthError(err.message));
-    } else {
-      window.location.href = '/api/auth/google';
-    }
+      } else {
+        setAuthError(data.error);
+      }
+    })
+    .catch(err => setAuthError(err.message));
   };
 
   const handleLogout = async () => {
