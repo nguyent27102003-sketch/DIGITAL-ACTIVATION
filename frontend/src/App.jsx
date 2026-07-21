@@ -52,6 +52,34 @@ export default function App() {
   const [actionRole, setActionRole] = useState('OPERATOR');
   const [actionReason, setActionReason] = useState('');
 
+  // Campaign & Job State
+  const [posterFile, setPosterFile] = useState(null);
+  const [isExtractingPoster, setIsExtractingPoster] = useState(false);
+  const [campaignName, setCampaignName] = useState('Chiến Dịch Activation Mới');
+  const [rules, setRules] = useState({
+    minVideoDurationSeconds: 30,
+    minLivestreamDurationSeconds: 900,
+    hashtags: ['#Activation', '#FBEval'],
+    fanpageTags: ['@FanpageOfficical'],
+    productNames: ['Sản Phẩm A'],
+    allowPhotosForLivestream: false
+  });
+  const [excelFile, setExcelFile] = useState(null);
+  const [excelFileId, setExcelFileId] = useState(null);
+  const [isInspectingExcel, setIsInspectingExcel] = useState(false);
+  const [inspectionSheets, setInspectionSheets] = useState([]);
+  const [selectedSheetIndex, setSelectedSheetIndex] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // Running Job & Review State
+  const [activeJobId, setActiveJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState('IDLE');
+  const [jobProgress, setJobProgress] = useState({ current: 0, total: 0 });
+  const [jobItems, setJobItems] = useState([]);
+  const [selectedReviewItem, setSelectedReviewItem] = useState(null);
+  const [overrideResult, setOverrideResult] = useState('PASSED');
+  const [overrideReason, setOverrideReason] = useState('');
+
   // Fetch session & config status on startup
   useEffect(() => {
     fetchConfigStatus();

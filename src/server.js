@@ -824,6 +824,19 @@ function handleGracefulShutdown(signal) {
 process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
 
+// SPA Static Fallback
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/screenshots') || req.path.startsWith('/exports')) {
+    return next();
+  }
+  const indexPath = path.join(rootDir, 'frontend/dist/index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.send('FBEVAL ACTIVATION V2.1 Backend Server is Running.');
+  }
+});
+
 // Startup Initialization Sequence
 app.listen(PORT, () => {
   console.log(`\n===============================================================`);
