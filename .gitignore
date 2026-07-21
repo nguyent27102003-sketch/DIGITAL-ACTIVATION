@@ -17,6 +17,8 @@ evidence_storage/
 export_packages/
 uploads/
 logs/
+public/exports/
+public/screenshots/
 
 # IDE & OS files
 .DS_Store
