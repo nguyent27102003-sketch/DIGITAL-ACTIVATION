@@ -355,8 +355,14 @@ export default function App() {
   };
 
   const currentSheet = inspectionSheets[selectedSheetIndex] || {};
+  const pendingUsersCount = (userList || []).filter(u => u.approval_status === 'PENDING' || u.approvalStatus === 'PENDING').length;
 
-  const isUserPending = currentUser && (currentUser.approvalStatus === 'PENDING' || currentUser.accountStatus === 'PENDING_APPROVAL');
+  const isUserPending = currentUser && (
+    currentUser.approvalStatus === 'PENDING' || 
+    currentUser.approval_status === 'PENDING' || 
+    currentUser.accountStatus === 'PENDING_APPROVAL' || 
+    currentUser.account_status === 'PENDING_APPROVAL'
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -481,16 +487,16 @@ export default function App() {
         </div>
 
         <div className="flex items-center space-x-4">
-          {currentUser?.role === 'ADMIN' && (
+          {(currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN') && (
             <button
               onClick={() => { setShowAdminUsers(true); fetchUserList(); }}
               className="relative flex items-center space-x-2 text-xs bg-indigo-950/80 text-indigo-300 hover:bg-indigo-900/80 px-3 py-1.5 rounded-lg border border-indigo-800 transition"
             >
               <Users className="w-4 h-4 text-indigo-400" />
               <span>Duyệt Người Dùng</span>
-              {pendingCount > 0 && (
+              {pendingUsersCount > 0 && (
                 <span className="bg-amber-500 text-slate-950 font-bold px-1.5 py-0.5 rounded-full text-[10px] animate-pulse">
-                  {pendingCount}
+                  {pendingUsersCount}
                 </span>
               )}
             </button>
