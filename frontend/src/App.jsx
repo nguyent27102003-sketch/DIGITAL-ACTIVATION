@@ -137,6 +137,20 @@ export default function App() {
     }
   };
 
+  const switchProvider = async (newProvider) => {
+    setAiProvider(newProvider);
+    try {
+      await fetch('/api/save-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: newProvider })
+      });
+      fetchConfigStatus();
+    } catch (e) {
+      console.error('Failed to switch provider:', e);
+    }
+  };
+
   const handleSaveAiConfig = async () => {
     setIsSavingAiConfig(true);
     setConfigSuccessMsg('');
@@ -791,6 +805,50 @@ export default function App() {
               )}
             </button>
           )}
+
+          {/* Quick AI Provider Switcher Bar */}
+          <div className="hidden md:flex items-center space-x-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs">
+            <span className="text-[11px] text-slate-400 font-semibold px-2">AI Engine:</span>
+            
+            <button
+              onClick={() => switchProvider('gemini')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center space-x-1.5 ${
+                aiProvider === 'gemini' 
+                  ? 'bg-blue-600 text-white shadow-md' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Chuyển sang Google Gemini"
+            >
+              <span>🔵 Gemini</span>
+              {configStatus?.geminiConfigured && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+            </button>
+
+            <button
+              onClick={() => switchProvider('openai')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center space-x-1.5 ${
+                aiProvider === 'openai' 
+                  ? 'bg-emerald-600 text-white shadow-md' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Chuyển sang ChatGPT / OpenAI"
+            >
+              <span>🟢 ChatGPT</span>
+              {configStatus?.openaiConfigured && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+            </button>
+
+            <button
+              onClick={() => switchProvider('9router')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center space-x-1.5 ${
+                aiProvider === '9router' 
+                  ? 'bg-purple-600 text-white shadow-md' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Chuyển sang 9Router Gateway"
+            >
+              <span>🟣 9Router</span>
+              {configStatus?.nineRouterConfigured && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+            </button>
+          </div>
 
           <div className="flex items-center space-x-2 text-xs bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
             <User className="w-4 h-4 text-blue-400" />
