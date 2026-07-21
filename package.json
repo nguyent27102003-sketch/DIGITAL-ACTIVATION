@@ -1,0 +1,35 @@
+{
+  "name": "fb-post-evaluator-bot",
+  "version": "1.0.0",
+  "description": "Bot evaluation of Facebook posts using Playwright and Gemini API",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node tests/run_all.js",
+    "build": "npm run frontend-build",
+    "frontend-install": "npm install --prefix frontend",
+    "frontend-dev": "npm run dev --prefix frontend",
+    "frontend-build": "npm run build --prefix frontend",
+    "setup": "npm install && npm run frontend-install && npx playwright install chromium",
+    "run-all": "concurrently \"npm run dev\" \"npm run frontend-dev\""
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "playwright": "^1.49.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "nodemon": "^3.1.7"
+  }
+}
