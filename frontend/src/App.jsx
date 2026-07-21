@@ -74,6 +74,17 @@ export default function App() {
   const [selectedSheetIndex, setSelectedSheetIndex] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   
+  // AI Config State
+  const [aiProvider, setAiProvider] = useState('gemini');
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('');
+  const [openaiApiKeyInput, setOpenaiApiKeyInput] = useState('');
+  const [nineRouterApiKeyInput, setNineRouterApiKeyInput] = useState('');
+  const [nineRouterBaseUrlInput, setNineRouterBaseUrlInput] = useState('https://api.9router.com/v1');
+  const [aiTestStatus, setAiTestStatus] = useState(null);
+  const [isTestingAi, setIsTestingAi] = useState(false);
+  const [isSavingAiConfig, setIsSavingAiConfig] = useState(false);
+  const [configSuccessMsg, setConfigSuccessMsg] = useState('');
+
   // Running Job & Review State
   const [activeJobId, setActiveJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('IDLE');
@@ -119,8 +130,63 @@ export default function App() {
       const res = await fetch('/api/config-status');
       const data = await res.json();
       setConfigStatus(data);
+      if (data.provider) setAiProvider(data.provider);
+      if (data.nineRouterBaseUrl) setNineRouterBaseUrlInput(data.nineRouterBaseUrl);
     } catch (e) {
       console.error('Failed to fetch config status', e);
+    }
+  };
+
+  const handleSaveAiConfig = async () => {
+    setIsSavingAiConfig(true);
+    setConfigSuccessMsg('');
+    try {
+      const res = await fetch('/api/save-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: aiProvider,
+          geminiApiKey: geminiApiKeyInput,
+          openaiApiKey: openaiApiKeyInput,
+          nineRouterApiKey: nineRouterApiKeyInput,
+          nineRouterBaseUrl: nineRouterBaseUrlInput
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConfigSuccessMsg('Đã lưu cấu hình AI Provider thành công!');
+        fetchConfigStatus();
+      } else {
+        alert(`Lỗi: ${data.error}`);
+      }
+    } catch (err) {
+      alert(`Lỗi lưu cấu hình: ${err.message}`);
+    } finally {
+      setIsSavingAiConfig(false);
+    }
+  };
+
+  const handleTestAiConfig = async () => {
+    setIsTestingAi(true);
+    setAiTestStatus(null);
+    try {
+      const res = await fetch('/api/test-ai-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: aiProvider,
+          geminiApiKey: geminiApiKeyInput || undefined,
+          openaiApiKey: openaiApiKeyInput || undefined,
+          nineRouterApiKey: nineRouterApiKeyInput || undefined,
+          nineRouterBaseUrl: nineRouterBaseUrlInput
+        })
+      });
+      const data = await res.json();
+      setAiTestStatus(data);
+    } catch (err) {
+      setAiTestStatus({ status: 'OFFLINE', reason: err.message });
+    } finally {
+      setIsTestingAi(false);
     }
   };
 
@@ -511,6 +577,184 @@ export default function App() {
                 className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition"
               >
                 Đăng Xuất
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. SETTINGS & AI PROVIDER MODAL */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-6 shadow-2xl relative overflow-hidden max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <Settings className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Cấu Hình AI Provider & API Keys</h3>
+                  <p className="text-xs text-slate-400">Hỗ trợ Gemini, ChatGPT (OpenAI) & 9Router Gateway</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* AI Provider Selection */}
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-300 block">Chọn Provider AI Đánh Giá Bài Viết:</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAiProvider('gemini')}
+                  className={`p-3 rounded-xl border text-left flex flex-col justify-between transition ${
+                    aiProvider === 'gemini' 
+                      ? 'bg-blue-950/60 border-blue-500 text-blue-300 shadow-md' 
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-xs">Google Gemini</span>
+                  <span className="text-[10px] opacity-75">Gemini 1.5 Flash</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAiProvider('openai')}
+                  className={`p-3 rounded-xl border text-left flex flex-col justify-between transition ${
+                    aiProvider === 'openai' 
+                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300 shadow-md' 
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-xs">ChatGPT / OpenAI</span>
+                  <span className="text-[10px] opacity-75">GPT-4o Vision</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAiProvider('9router')}
+                  className={`p-3 rounded-xl border text-left flex flex-col justify-between transition ${
+                    aiProvider === '9router' 
+                      ? 'bg-purple-950/60 border-purple-500 text-purple-300 shadow-md' 
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-xs">9Router Gateway</span>
+                  <span className="text-[10px] opacity-75">Multi-Model Proxy</span>
+                </button>
+              </div>
+            </div>
+
+            {/* API Key Inputs */}
+            <div className="space-y-4 pt-2 border-t border-slate-800">
+              {/* Gemini Key Input */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs text-slate-300 font-medium">Google Gemini API Key:</label>
+                  {configStatus.maskedGeminiKey && (
+                    <span className="text-[10px] text-emerald-400 font-mono">Đã lưu: {configStatus.maskedGeminiKey}</span>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={geminiApiKeyInput}
+                  onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                  placeholder={configStatus.maskedGeminiKey ? "Để trống nếu không đổi API Key..." : "Dán Gemini API Key từ Google AI Studio..."}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* OpenAI Key Input */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs text-slate-300 font-medium">ChatGPT / OpenAI API Key:</label>
+                  {configStatus.maskedOpenAIKey && (
+                    <span className="text-[10px] text-emerald-400 font-mono">Đã lưu: {configStatus.maskedOpenAIKey}</span>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={openaiApiKeyInput}
+                  onChange={(e) => setOpenaiApiKeyInput(e.target.value)}
+                  placeholder={configStatus.maskedOpenAIKey ? "Để trống nếu không đổi API Key..." : "Dán OpenAI API Key (sk-...)"}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* 9Router Key Input & Base URL */}
+              <div className="space-y-3 p-3 bg-purple-950/20 border border-purple-800/40 rounded-2xl">
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs text-purple-300 font-medium">9Router API Key:</label>
+                    {configStatus.masked9RouterKey && (
+                      <span className="text-[10px] text-purple-400 font-mono">Đã lưu: {configStatus.masked9RouterKey}</span>
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    value={nineRouterApiKeyInput}
+                    onChange={(e) => setNineRouterApiKeyInput(e.target.value)}
+                    placeholder={configStatus.masked9RouterKey ? "Để trống nếu không đổi API Key..." : "Dán 9Router Gateway API Key..."}
+                    className="w-full bg-slate-950 border border-purple-900/60 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs text-purple-300 font-medium">9Router Base URL Endpoint:</label>
+                  <input
+                    type="text"
+                    value={nineRouterBaseUrlInput}
+                    onChange={(e) => setNineRouterBaseUrlInput(e.target.value)}
+                    placeholder="https://api.9router.com/v1"
+                    className="w-full bg-slate-950 border border-purple-900/60 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-purple-500 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Test Status Output */}
+            {aiTestStatus && (
+              <div className={`p-3 rounded-xl border text-xs flex items-center space-x-2 ${
+                aiTestStatus.status === 'ONLINE' 
+                  ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' 
+                  : 'bg-rose-950/60 border-rose-800 text-rose-300'
+              }`}>
+                <Sparkles className="w-4 h-4 shrink-0" />
+                <span>{aiTestStatus.message || aiTestStatus.reason}</span>
+              </div>
+            )}
+
+            {configSuccessMsg && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs rounded-xl flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{configSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleTestAiConfig}
+                disabled={isTestingAi}
+                className="flex-1 py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 transition flex items-center justify-center space-x-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${isTestingAi ? 'animate-spin' : ''}`} />
+                <span>{isTestingAi ? 'Đang kiểm tra...' : '🧪 Test Kết Nối AI'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveAiConfig}
+                disabled={isSavingAiConfig}
+                className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 transition flex items-center justify-center space-x-2"
+              >
+                <span>{isSavingAiConfig ? 'Đang lưu...' : '💾 Lưu Cấu Hình AI'}</span>
               </button>
             </div>
           </div>

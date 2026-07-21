@@ -21,6 +21,7 @@ import {
   mapAccessStateToItemStatus,
   getRetryDelayMs
 } from './jobs/jobRecoveryService.js';
+import { aiGateway } from './ai/gateway.js';
 
 dotenv.config();
 
@@ -76,7 +77,7 @@ const upload = multer({ dest: uploadDir });
 
 // System Ready Middleware
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth') || req.path === '/config-status' || req.path === '/health') return next();
+  if (req.path.startsWith('/auth') || req.path.startsWith('/config') || req.path.startsWith('/save-config') || req.path.startsWith('/test-ai-config') || req.path === '/health') return next();
   if (!isSystemReady) {
     return res.status(503).json({
       success: false,
@@ -84,6 +85,114 @@ app.use('/api', (req, res, next) => {
     });
   }
   next();
+});
+
+function maskKey(key) {
+  if (!key) return '';
+  if (key.length <= 8) return '****';
+  return key.substring(0, 4) + '...' + key.substring(key.length - 4);
+}
+
+function updateEnvFile(updates) {
+  const envPath = path.join(rootDir, '.env');
+  let envContent = '';
+  if (fs.existsSync(envPath)) {
+    envContent = fs.readFileSync(envPath, 'utf-8');
+  }
+
+  const lines = envContent.split(/\r?\n/);
+  const keyMap = { ...updates };
+
+  const newLines = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx !== -1) {
+      const key = trimmed.substring(0, eqIdx).trim();
+      if (key in keyMap) {
+        const val = keyMap[key];
+        delete keyMap[key];
+        return `${key}=${val}`;
+      }
+    }
+    return line;
+  });
+
+  for (const [key, val] of Object.entries(keyMap)) {
+    newLines.push(`${key}=${val}`);
+  }
+
+  fs.writeFileSync(envPath, newLines.join('\n'), 'utf-8');
+
+  for (const [key, val] of Object.entries(updates)) {
+    process.env[key] = val;
+  }
+
+  aiGateway.reloadConfig();
+}
+
+/**
+ * GET /api/config-status
+ */
+app.get('/api/config-status', (req, res) => {
+  const provider = process.env.AI_PROVIDER || 'gemini';
+  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const openaiKey = process.env.OPENAI_API_KEY || '';
+  const nineRouterKey = process.env.NINE_ROUTER_API_KEY || process.env.NINEROUTER_API_KEY || '';
+  const nineRouterBaseUrl = process.env.NINE_ROUTER_BASE_URL || 'https://api.9router.com/v1';
+
+  const isConfigured = Boolean(geminiKey || openaiKey || nineRouterKey);
+
+  res.json({
+    success: true,
+    configured: isConfigured,
+    provider,
+    geminiConfigured: Boolean(geminiKey),
+    openaiConfigured: Boolean(openaiKey),
+    nineRouterConfigured: Boolean(nineRouterKey),
+    googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'mock_google_client_id'),
+    maskedGeminiKey: maskKey(geminiKey),
+    maskedOpenAIKey: maskKey(openaiKey),
+    masked9RouterKey: maskKey(nineRouterKey),
+    nineRouterBaseUrl
+  });
+});
+
+/**
+ * POST /api/save-config
+ */
+app.post('/api/save-config', (req, res) => {
+  const { provider, geminiApiKey, openaiApiKey, nineRouterApiKey, nineRouterBaseUrl } = req.body;
+
+  const updates = {};
+  if (provider) updates.AI_PROVIDER = provider;
+  if (geminiApiKey !== undefined) updates.GEMINI_API_KEY = geminiApiKey;
+  if (openaiApiKey !== undefined) updates.OPENAI_API_KEY = openaiApiKey;
+  if (nineRouterApiKey !== undefined) updates.NINE_ROUTER_API_KEY = nineRouterApiKey;
+  if (nineRouterBaseUrl !== undefined) updates.NINE_ROUTER_BASE_URL = nineRouterBaseUrl;
+
+  try {
+    updateEnvFile(updates);
+    res.json({
+      success: true,
+      message: 'Đã lưu cấu hình AI Provider thành công!',
+      provider: process.env.AI_PROVIDER
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: `Lỗi lưu cấu hình: ${err.message}` });
+  }
+});
+
+/**
+ * POST /api/test-ai-config
+ */
+app.post('/api/test-ai-config', async (req, res) => {
+  try {
+    const health = await aiGateway.healthCheck(req.body);
+    res.json({ success: true, ...health });
+  } catch (err) {
+    res.status(400).json({ success: false, status: 'OFFLINE', reason: err.message });
+  }
 });
 
 // Helper to create audit logs

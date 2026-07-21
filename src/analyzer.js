@@ -123,10 +123,9 @@ function getMimeType(filePath) {
   return 'image/jpeg';
 }
 
-export async function extractRulesFromPoster(posterImagePath, apiKey) {
-  const model = getAIModel(apiKey);
-  const imagePart = fileToGenerativePart(posterImagePath, getMimeType(posterImagePath));
+import { aiGateway } from './ai/gateway.js';
 
+export async function extractRulesFromPoster(posterImagePath, apiKey) {
   const prompt = `Bạn là chuyên gia phân tích thể lệ chương trình truyền thông / Trade Activation.
 Hãy đọc kỹ hình ảnh Poster thể lệ này và trả về đúng 1 JSON Object tuân thủ schema:
 {
@@ -140,19 +139,17 @@ Hãy đọc kỹ hình ảnh Poster thể lệ này và trả về đúng 1 JSON
   "summaryRules": "Tóm tắt thể lệ"
 }`;
 
-  const result = await model.generateContent([prompt, imagePart]);
-  const jsonRaw = cleanAndParseJSON(result.response.text());
+  const responseText = await aiGateway.generateVisionContent({
+    prompt,
+    imagePath: posterImagePath,
+    overrideKey: apiKey
+  });
+
+  const jsonRaw = cleanAndParseJSON(responseText);
   return PosterRuleSchema.parse(jsonRaw);
 }
 
 export async function analyzePost(screenshotPath, extractedText, rule, apiKey) {
-  const model = getAIModel(apiKey);
-  const parts = [];
-
-  if (screenshotPath && fs.existsSync(screenshotPath)) {
-    parts.push(fileToGenerativePart(screenshotPath, 'image/png'));
-  }
-
   const serializedRules = typeof rule === 'object' ? JSON.stringify(rule, null, 2) : String(rule);
 
   const prompt = `Bạn là trợ lý AI phân tích nội dung bài viết Facebook/TikTok.
@@ -188,8 +185,12 @@ Hãy phân tích và trả về đúng JSON Object:
   "reviewReasons": []
 }`;
 
-  parts.push(prompt);
-  const result = await model.generateContent(parts);
-  const jsonRaw = cleanAndParseJSON(result.response.text());
+  const responseText = await aiGateway.generateVisionContent({
+    prompt,
+    imagePath: screenshotPath,
+    overrideKey: apiKey
+  });
+
+  const jsonRaw = cleanAndParseJSON(responseText);
   return AIAnalysisSchema.parse(jsonRaw);
 }
