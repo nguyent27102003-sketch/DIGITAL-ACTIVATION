@@ -31,12 +31,12 @@ export class AIProviderGateway {
   }
 
   reloadConfig() {
-    this.provider = process.env.AI_PROVIDER || 'gemini';
+    this.provider = process.env.AI_PROVIDER || '9router';
     this.fallbackProvider = process.env.AI_FALLBACK_PROVIDER || 'gemini';
     this.geminiApiKey = process.env.GEMINI_API_KEY || '';
     this.openaiApiKey = process.env.OPENAI_API_KEY || '';
-    this.nineRouterApiKey = process.env.NINE_ROUTER_API_KEY || process.env.NINEROUTER_API_KEY || '';
-    this.nineRouterBaseUrl = (process.env.NINE_ROUTER_BASE_URL || 'https://api.9router.com/v1').replace(/\/+$/, '');
+    this.nineRouterApiKey = process.env.NINE_ROUTER_API_KEY || process.env.NINEROUTER_API_KEY || '9router-local';
+    this.nineRouterBaseUrl = (process.env.NINE_ROUTER_BASE_URL || 'http://localhost:20128/v1').replace(/\/+$/, '');
   }
 
   /**
@@ -46,16 +46,19 @@ export class AIProviderGateway {
     const provider = customConfig?.provider || this.provider;
     const geminiKey = customConfig?.geminiApiKey || this.geminiApiKey;
     const openaiKey = customConfig?.openaiApiKey || this.openaiApiKey;
-    const routerKey = customConfig?.nineRouterApiKey || this.nineRouterApiKey;
-    const routerBaseUrl = (customConfig?.nineRouterBaseUrl || this.nineRouterBaseUrl).replace(/\/+$/, '');
+    const routerKey = customConfig?.nineRouterApiKey || this.nineRouterApiKey || '9router-local';
+    const routerBaseUrl = (customConfig?.nineRouterBaseUrl || this.nineRouterBaseUrl || 'http://localhost:20128/v1').replace(/\/+$/, '');
 
     try {
       if (provider === '9router') {
-        if (!routerKey) return { status: 'OFFLINE', provider: '9router', reason: 'Chưa nhập 9Router API Key' };
         const res = await fetch(`${routerBaseUrl}/models`, {
           headers: { 'Authorization': `Bearer ${routerKey}` }
         });
-        if (res.ok) return { status: 'ONLINE', provider: '9router', message: 'Kết nối 9Router Gateway thành công!' };
+        if (res.ok) {
+          const data = await res.json();
+          const modelCount = data.data ? data.data.length : 0;
+          return { status: 'ONLINE', provider: '9router', message: `Đã kết nối 9Router Proxy (${routerBaseUrl}) thành công! (${modelCount} AI models có sẵn)` };
+        }
         const errText = await res.text();
         return { status: 'OFFLINE', provider: '9router', reason: `9Router phản hồi lỗi (${res.status}): ${errText.substring(0, 100)}` };
       }
@@ -89,25 +92,30 @@ export class AIProviderGateway {
     try {
       const id = `air_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const inputHash = crypto.createHash('sha256').update(promptSummary || '').digest('hex').substring(0, 16);
+      const outputHash = crypto.createHash('sha256').update(typeof responseJson === 'string' ? responseJson : JSON.stringify(responseJson || '')).digest('hex').substring(0, 16);
 
       db.prepare(`
         INSERT INTO ai_requests 
-        (id, provider, model, task_type, input_hash, prompt_summary, response_json, status, latency_ms, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, purpose, task_type, provider, requested_provider, actual_provider, model, requested_model, actual_model, input_hash, output_hash, status, latency_ms, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
-        provider,
-        model,
-        taskType,
+        taskType || 'CAPTION_ANALYSIS',
+        taskType || 'CAPTION_ANALYSIS',
+        provider || '9router',
+        provider || '9router',
+        provider || '9router',
+        model || '9router/auto',
+        model || '9router/auto',
+        model || '9router/auto',
         inputHash,
-        (promptSummary || '').substring(0, 500),
-        typeof responseJson === 'string' ? responseJson.substring(0, 1000) : JSON.stringify(responseJson).substring(0, 1000),
-        status,
-        latencyMs,
+        outputHash,
+        status || 'SUCCESS',
+        latencyMs || 0,
         new Date().toISOString()
       );
     } catch (err) {
-      console.error('[AI Audit Log Error]', err);
+      console.error('[AI Audit Log Error]', err.message);
     }
   }
 
@@ -125,14 +133,16 @@ export class AIProviderGateway {
 
     // 1. Try 9Router Gateway
     if (activeProvider === '9router') {
-      const apiKey = overrideKey || this.nineRouterApiKey;
-      if (apiKey) {
-        try {
-          const content = [{ type: 'text', text: prompt }];
-          if (imagePath && fs.existsSync(imagePath)) {
-            content.push({ type: 'image_url', image_url: { url: imageToBase64DataUrl(imagePath) } });
-          }
+      const apiKey = overrideKey || this.nineRouterApiKey || '9router-local';
+      const candidateModels = ['cx/gpt-5.5', 'gh/gpt-4o', 'cx/gpt-5.4', 'gh/gpt-4o-mini', '9router/auto'];
 
+      const content = [{ type: 'text', text: prompt }];
+      if (imagePath && fs.existsSync(imagePath)) {
+        content.push({ type: 'image_url', image_url: { url: imageToBase64DataUrl(imagePath) } });
+      }
+
+      for (const targetModel of candidateModels) {
+        try {
           const res = await fetch(`${this.nineRouterBaseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
@@ -140,7 +150,7 @@ export class AIProviderGateway {
               'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-              model: '9router/auto',
+              model: targetModel,
               messages: [{ role: 'user', content }]
             })
           });
@@ -148,12 +158,13 @@ export class AIProviderGateway {
           if (data.choices && data.choices[0]?.message?.content) {
             resultText = data.choices[0].message.content;
             usedProvider = '9router';
-            usedModel = data.model || '9router/auto';
+            usedModel = data.model || targetModel;
+            break;
           } else if (data.error) {
-            throw new Error(data.error.message || 'Lỗi 9Router Gateway');
+            console.warn(`[9Router Model ${targetModel} Failed]:`, data.error.message);
           }
         } catch (routerErr) {
-          console.warn('[9Router Fallback Triggered]:', routerErr.message);
+          console.warn(`[9Router Model ${targetModel} Exception]:`, routerErr.message);
         }
       }
     }
