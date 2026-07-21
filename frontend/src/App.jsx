@@ -106,6 +106,16 @@ export default function App() {
     }
   }, [showAdminUsers, adminTab]);
 
+  // Real-time polling for Active Job when in Step 3
+  useEffect(() => {
+    if (!activeJobId || step !== 3) return;
+    fetchJobDetails(activeJobId);
+    const interval = setInterval(() => {
+      fetchJobDetails(activeJobId);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [activeJobId, step]);
+
   const checkCurrentUserSession = async () => {
     if (window.location.search.includes('logged_out=1')) {
       setCurrentUser(null);
@@ -403,6 +413,8 @@ export default function App() {
       setActiveJobId(jobData.jobId);
       setJobProgress({ current: 0, total: jobData.totalItems });
       setStep(3);
+      setJobStatus('RUNNING');
+      await fetch(`/api/jobs/${jobData.jobId}/start`, { method: 'POST' });
       fetchJobDetails(jobData.jobId);
     } else {
       alert('Lỗi tạo Job: ' + jobData.error);

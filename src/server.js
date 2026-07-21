@@ -486,6 +486,213 @@ app.post('/api/jobs', async (req, res) => {
   }
 });
 
+// Global Active Job Workers Set
+const activeJobWorkers = new Set();
+
+function triggerJobWorker(jobId) {
+  if (activeJobWorkers.has(jobId)) return;
+  activeJobWorkers.add(jobId);
+
+  (async () => {
+    try {
+      const job = db.prepare(`SELECT * FROM jobs WHERE id = ?`).get(jobId);
+      if (!job) return;
+
+      const ruleRow = db.prepare(`SELECT * FROM campaign_rules WHERE id = ?`).get(job.campaign_rule_id);
+      const ruleObj = ruleRow ? {
+        productNames: JSON.parse(ruleRow.product_names || '[]'),
+        requiredHashtags: JSON.parse(ruleRow.required_hashtags || '[]'),
+        requiredTags: JSON.parse(ruleRow.required_tags || '[]'),
+        minVideoDurationSec: ruleRow.min_video_duration_sec,
+        minLivestreamDurationSec: ruleRow.min_livestream_duration_sec,
+        requireCTA: ruleRow.require_cta === 1
+      } : {};
+
+      while (true) {
+        const currentJob = db.prepare(`SELECT status, cancel_requested, pause_requested FROM jobs WHERE id = ?`).get(jobId);
+        if (!currentJob || currentJob.status === 'CANCELLED' || currentJob.status === 'PAUSED') break;
+
+        if (currentJob.cancel_requested === 1) {
+          db.prepare(`UPDATE jobs SET status = 'CANCELLED', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
+          db.prepare(`UPDATE job_items SET technical_status = 'CANCELLED', updated_at = ? WHERE job_id = ? AND technical_status IN ('PENDING', 'RETRYING')`).run(new Date().toISOString(), jobId);
+          createNotification('JOB_CANCELLED', 'WARNING', 'Job đã bị hủy', `Job ${jobId} đã dừng theo yêu cầu của người dùng.`, jobId);
+          break;
+        }
+        if (currentJob.pause_requested === 1) {
+          db.prepare(`UPDATE jobs SET status = 'PAUSED', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
+          createNotification('JOB_PAUSED', 'INFO', 'Job đã tạm dừng', `Job ${jobId} đã tạm dừng. Có thể khôi phục bất kỳ lúc nào.`, jobId);
+          break;
+        }
+
+        const nowIso = new Date().toISOString();
+        const nextItem = db.prepare(`
+          SELECT * FROM job_items 
+          WHERE job_id = ? 
+            AND technical_status IN ('PENDING', 'RETRYING')
+            AND (next_retry_at IS NULL OR next_retry_at <= ?)
+          ORDER BY source_row ASC, id ASC
+          LIMIT 1
+        `).get(jobId, nowIso);
+
+        if (!nextItem) break;
+
+        const locked = acquireItemLock(nextItem.id, SERVER_INSTANCE_ID);
+        if (!locked) continue;
+
+        const heartbeatTimer = setInterval(() => {
+          updateHeartbeat(nextItem.id, SERVER_INSTANCE_ID);
+        }, 15000);
+
+        try {
+          let scrapeRes;
+          if (process.env.TEST_MODE === 'true') {
+            scrapeRes = {
+              success: true,
+              accessState: 'ACCESSIBLE',
+              platform: nextItem.platform,
+              postType: 'Video clip',
+              durationSeconds: 45,
+              captionText: 'Bài dự thi #10tyloikhuan #caovuottroi #giainhietmuahe #SmartaGrowOpti @HùngCườngCompany Mua ngay tại cửa hàng',
+              likes: 120,
+              comments: 15,
+              shares: 2,
+              views: 2500,
+              proofScreen1: '/screenshots/mock.png',
+              proofScreen2: '/screenshots/mock.png'
+            };
+          } else {
+            scrapeRes = await scrapePost(nextItem.source_url, true, null);
+          }
+
+          const accessMapping = mapAccessStateToItemStatus(scrapeRes.accessState, nextItem.attempt_count + 1, nextItem.max_attempts || 4);
+
+          if (accessMapping.shouldPauseJob) {
+            releaseItemLock(nextItem.id, accessMapping.technicalStatus, null, scrapeRes.accessState, `Tài khoản hoặc phiên truy cập bị khóa/xác minh: ${scrapeRes.accessState}`);
+            db.prepare(`UPDATE jobs SET pause_requested = 1, status = 'PAUSED', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
+            createNotification('JOB_SECURITY_PAUSE', 'ERROR', 'Tạm dừng Job do sự cố đăng nhập', `Phát hiện ${scrapeRes.accessState} tại dòng ${nextItem.source_row}. Job đã tạm dừng để tránh khóa tài khoản.`, jobId, nextItem.id);
+            clearInterval(heartbeatTimer);
+            break;
+          }
+
+          if (accessMapping.technicalStatus === 'RETRYING') {
+            const delayMs = getRetryDelayMs(nextItem.attempt_count);
+            releaseItemLock(nextItem.id, 'RETRYING', null, scrapeRes.accessState, `Gặp lỗi có thể thử lại (${scrapeRes.accessState}). Thử lại sau ${delayMs / 1000}s`, delayMs);
+            clearInterval(heartbeatTimer);
+            continue;
+          }
+
+          let aiRes = null;
+          if (scrapeRes.success && scrapeRes.accessState === 'ACCESSIBLE') {
+            try {
+              aiRes = await analyzePost(scrapeRes.proof1Path, scrapeRes.captionText, ruleObj);
+            } catch (aiErr) {
+              console.error('[Worker] AI Analysis fallback:', aiErr.message);
+            }
+          }
+
+          const evalResult = computeEvaluation(scrapeRes, ruleObj, aiRes);
+          const evalNow = new Date().toISOString();
+
+          db.prepare(`
+            INSERT OR REPLACE INTO scrape_results (id, job_item_id, access_state, post_type, duration_seconds, caption_text, likes, comments, shares, views, raw_metrics_json, extracted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            `scrape_${nextItem.id}`,
+            nextItem.id,
+            scrapeRes.accessState,
+            scrapeRes.postType || 'Video clip',
+            scrapeRes.durationSeconds || null,
+            scrapeRes.captionText || '',
+            scrapeRes.likes !== undefined ? scrapeRes.likes : null,
+            scrapeRes.comments !== undefined ? scrapeRes.comments : null,
+            scrapeRes.shares !== undefined ? scrapeRes.shares : null,
+            scrapeRes.views !== undefined ? scrapeRes.views : null,
+            JSON.stringify(scrapeRes),
+            evalNow
+          );
+
+          db.prepare(`
+            INSERT OR REPLACE INTO evaluation_results (id, job_item_id, dk1_passed, dk1_reason, dk2_passed, dk2_reason, overall_result, confidence, feedback, evaluated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            `eval_${nextItem.id}`,
+            nextItem.id,
+            evalResult.dk1.isStandard ? 1 : 0,
+            evalResult.dk1.reason,
+            evalResult.dk2.isStandard ? 1 : 0,
+            evalResult.dk2.reason,
+            evalResult.businessResult,
+            evalResult.confidence,
+            evalResult.feedback,
+            evalNow
+          );
+
+          if (scrapeRes.proofScreen1) {
+            const hash1 = computeFileHash(path.join(rootDir, 'public', scrapeRes.proofScreen1.replace(/^\//, '')));
+            db.prepare(`
+              INSERT OR REPLACE INTO evidence_files (id, job_id, job_item_id, platform, source_url, evidence_type, file_path, file_name, file_hash, captured_at, created_at)
+              VALUES (?, ?, ?, ?, ?, 'CONTENT', ?, ?, ?, ?, ?)
+            `).run(`ev1_${nextItem.id}`, jobId, nextItem.id, nextItem.platform, nextItem.source_url, scrapeRes.proofScreen1, path.basename(scrapeRes.proofScreen1), hash1, evalNow, evalNow);
+          }
+          if (scrapeRes.proofScreen2) {
+            const hash2 = computeFileHash(path.join(rootDir, 'public', scrapeRes.proofScreen2.replace(/^\//, '')));
+            db.prepare(`
+              INSERT OR REPLACE INTO evidence_files (id, job_id, job_item_id, platform, source_url, evidence_type, file_path, file_name, file_hash, captured_at, created_at)
+              VALUES (?, ?, ?, ?, ?, 'ENGAGEMENT', ?, ?, ?, ?, ?)
+            `).run(`ev2_${nextItem.id}`, jobId, nextItem.id, nextItem.platform, nextItem.source_url, scrapeRes.proofScreen2, path.basename(scrapeRes.proofScreen2), hash2, evalNow, evalNow);
+          }
+
+          releaseItemLock(nextItem.id, 'COMPLETED', evalResult.businessResult, null, null);
+
+        } catch (itemErr) {
+          console.error(`[Worker] Error processing item ${nextItem.id}:`, itemErr);
+          const currentAttempt = nextItem.attempt_count + 1;
+          const maxAttempts = nextItem.max_attempts || 4;
+
+          if (currentAttempt < maxAttempts) {
+            const delayMs = getRetryDelayMs(currentAttempt);
+            releaseItemLock(nextItem.id, 'RETRYING', null, 'PROCESSING_ERROR', itemErr.message, delayMs);
+          } else {
+            releaseItemLock(nextItem.id, 'PROCESSING_ERROR', null, 'PROCESSING_ERROR', itemErr.message);
+          }
+        } finally {
+          clearInterval(heartbeatTimer);
+        }
+
+        const counts = db.prepare(`
+          SELECT 
+            COUNT(*) as total,
+            SUM(CASE WHEN technical_status = 'COMPLETED' THEN 1 ELSE 0 END) as processed,
+            SUM(CASE WHEN business_result = 'PASSED' THEN 1 ELSE 0 END) as passed,
+            SUM(CASE WHEN business_result = 'FAILED' THEN 1 ELSE 0 END) as failed,
+            SUM(CASE WHEN business_result = 'NEEDS_REVIEW' THEN 1 ELSE 0 END) as review,
+            SUM(CASE WHEN technical_status = 'PROCESSING_ERROR' THEN 1 ELSE 0 END) as error
+          FROM job_items WHERE job_id = ?
+        `).get(jobId);
+
+        db.prepare(`
+          UPDATE jobs 
+          SET processed_items = ?, passed_items = ?, failed_items = ?, review_items = ?, error_items = ?, updated_at = ?
+          WHERE id = ?
+        `).run(counts.processed || 0, counts.passed || 0, counts.failed || 0, counts.review || 0, counts.error || 0, new Date().toISOString(), jobId);
+      }
+
+      const finalJob = db.prepare(`SELECT status, total_items, processed_items FROM jobs WHERE id = ?`).get(jobId);
+      if (finalJob && finalJob.status === 'RUNNING') {
+        const remaining = db.prepare(`SELECT COUNT(*) as count FROM job_items WHERE job_id = ? AND technical_status IN ('PENDING', 'PROCESSING', 'RETRYING')`).get(jobId).count;
+        if (remaining === 0) {
+          db.prepare(`UPDATE jobs SET status = 'COMPLETED', completed_at = ?, updated_at = ? WHERE id = ?`).run(new Date().toISOString(), new Date().toISOString(), jobId);
+          createNotification('JOB_COMPLETED', 'SUCCESS', 'Job hoàn thành', `Job ${jobId} đã xử lý xong toàn bộ ${finalJob.total_items} mục.`, jobId);
+        }
+      }
+    } catch (err) {
+      console.error('[Worker] Fatal error in job queue:', err);
+    } finally {
+      activeJobWorkers.delete(jobId);
+    }
+  })();
+}
+
 // Start / Execute Job Worker
 app.post('/api/jobs/:id/start', async (req, res) => {
   const jobId = req.params.id;
@@ -493,224 +700,21 @@ app.post('/api/jobs/:id/start', async (req, res) => {
   if (!job) return res.status(404).json({ success: false, error: 'Không tìm thấy Job.' });
 
   const nowStr = new Date().toISOString();
-  db.prepare(`UPDATE jobs SET status = 'RUNNING', started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?`).run(nowStr, nowStr, jobId);
+  db.prepare(`UPDATE jobs SET pause_requested = 0, status = 'RUNNING', started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?`).run(nowStr, nowStr, jobId);
   createAuditLog('USER', 'USER', 'START_JOB', 'JOB', jobId);
 
   res.json({ success: true, message: 'Đã khởi chạy Job.' });
-
-  // Background Worker Loop using Atomic Lease & Retry Scheduler
-  (async () => {
-    const ruleRow = db.prepare(`SELECT * FROM campaign_rules WHERE id = ?`).get(job.campaign_rule_id);
-    const ruleObj = {
-      productNames: JSON.parse(ruleRow.product_names || '[]'),
-      requiredHashtags: JSON.parse(ruleRow.required_hashtags || '[]'),
-      requiredTags: JSON.parse(ruleRow.required_tags || '[]'),
-      minVideoDurationSec: ruleRow.min_video_duration_sec,
-      minLivestreamDurationSec: ruleRow.min_livestream_duration_sec,
-      requireCTA: ruleRow.require_cta === 1
-    };
-
-    while (true) {
-      // Check current job status (cancel / pause requested)
-      const currentJob = db.prepare(`SELECT status, cancel_requested, pause_requested FROM jobs WHERE id = ?`).get(jobId);
-      if (!currentJob || currentJob.status === 'CANCELLED' || currentJob.status === 'PAUSED') break;
-
-      if (currentJob.cancel_requested === 1) {
-        db.prepare(`UPDATE jobs SET status = 'CANCELLED', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
-        db.prepare(`UPDATE job_items SET technical_status = 'CANCELLED', updated_at = ? WHERE job_id = ? AND technical_status IN ('PENDING', 'RETRYING')`).run(new Date().toISOString(), jobId);
-        createNotification('JOB_CANCELLED', 'WARNING', 'Job đã bị hủy', `Job ${jobId} đã dừng theo yêu cầu của người dùng.`, jobId);
-        break;
-      }
-      if (currentJob.pause_requested === 1) {
-        db.prepare(`UPDATE jobs SET status = 'PAUSED', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
-        createNotification('JOB_PAUSED', 'INFO', 'Job đã tạm dừng', `Job ${jobId} đã tạm dừng. Có thể khôi phục bất kỳ lúc nào.`, jobId);
-        break;
-      }
-
-      // Pick next item ready for processing
-      const nowIso = new Date().toISOString();
-      const nextItem = db.prepare(`
-        SELECT * FROM job_items 
-        WHERE job_id = ? 
-          AND technical_status IN ('PENDING', 'RETRYING')
-          AND (next_retry_at IS NULL OR next_retry_at <= ?)
-        ORDER BY source_row ASC, id ASC
-        LIMIT 1
-      `).get(jobId, nowIso);
-
-      if (!nextItem) break; // No remaining items
-
-      // Atomic Lease acquisition
-      const locked = acquireItemLock(nextItem.id, SERVER_INSTANCE_ID);
-      if (!locked) continue; // Another process grabbed it or lock failed
-
-      // Heartbeat timer during processing
-      const heartbeatTimer = setInterval(() => {
-        updateHeartbeat(nextItem.id, SERVER_INSTANCE_ID);
-      }, 15000);
-
-      try {
-        let scrapeRes;
-        if (process.env.TEST_MODE === 'true') {
-          scrapeRes = {
-            success: true,
-            accessState: 'ACCESSIBLE',
-            platform: nextItem.platform,
-            postType: 'Video clip',
-            durationSeconds: 45,
-            captionText: 'Bài dự thi #10tyloikhuan #caovuottroi #giainhietmuahe #SmartaGrowOpti @HùngCườngCompany Mua ngay tại cửa hàng',
-            likes: 120,
-            comments: 15,
-            shares: 2,
-            views: 2500,
-            proofScreen1: '/screenshots/mock.png',
-            proofScreen2: '/screenshots/mock.png'
-          };
-        } else {
-          scrapeRes = await scrapePost(nextItem.source_url, true, null);
-        }
-
-        const accessMapping = mapAccessStateToItemStatus(scrapeRes.accessState, nextItem.attempt_count + 1, nextItem.max_attempts || 4);
-
-        if (accessMapping.shouldPauseJob) {
-          // Access State requiring Pause (LOGIN_REQUIRED, SESSION_EXPIRED, CAPTCHA, CHECKPOINT)
-          releaseItemLock(nextItem.id, accessMapping.technicalStatus, null, scrapeRes.accessState, `Tài khoản hoặc phiên truy cập bị khóa/xác minh: ${scrapeRes.accessState}`);
-          db.prepare(`UPDATE jobs SET pause_requested = 1, status = 'PAUSED', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
-          createNotification('JOB_SECURITY_PAUSE', 'ERROR', 'Tạm dừng Job do sự cố đăng nhập', `Phát hiện ${scrapeRes.accessState} tại dòng ${nextItem.source_row}. Job đã tạm dừng để tránh khóa tài khoản.`, jobId, nextItem.id);
-          clearInterval(heartbeatTimer);
-          break;
-        }
-
-        if (accessMapping.technicalStatus === 'RETRYING') {
-          const delayMs = getRetryDelayMs(nextItem.attempt_count);
-          releaseItemLock(nextItem.id, 'RETRYING', null, scrapeRes.accessState, `Gặp lỗi có thể thử lại (${scrapeRes.accessState}). Thử lại sau ${delayMs / 1000}s`, delayMs);
-          clearInterval(heartbeatTimer);
-          continue;
-        }
-
-        let aiRes = null;
-        if (scrapeRes.success && scrapeRes.accessState === 'ACCESSIBLE') {
-          try {
-            aiRes = await analyzePost(scrapeRes.proof1Path, scrapeRes.captionText, ruleObj);
-          } catch (aiErr) {
-            console.error('[Worker] AI Analysis fallback:', aiErr.message);
-          }
-        }
-
-        const evalResult = computeEvaluation(scrapeRes, ruleObj, aiRes);
-        const evalNow = new Date().toISOString();
-
-        // Save Scrape Result
-        db.prepare(`
-          INSERT OR REPLACE INTO scrape_results (id, job_item_id, access_state, post_type, duration_seconds, caption_text, likes, comments, shares, views, raw_metrics_json, extracted_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          `scrape_${nextItem.id}`,
-          nextItem.id,
-          scrapeRes.accessState,
-          scrapeRes.postType || 'Video clip',
-          scrapeRes.durationSeconds || null,
-          scrapeRes.captionText || '',
-          scrapeRes.likes !== undefined ? scrapeRes.likes : null,
-          scrapeRes.comments !== undefined ? scrapeRes.comments : null,
-          scrapeRes.shares !== undefined ? scrapeRes.shares : null,
-          scrapeRes.views !== undefined ? scrapeRes.views : null,
-          JSON.stringify(scrapeRes),
-          evalNow
-        );
-
-        // Save Evaluation Result
-        db.prepare(`
-          INSERT OR REPLACE INTO evaluation_results (id, job_item_id, dk1_passed, dk1_reason, dk2_passed, dk2_reason, overall_result, confidence, feedback, evaluated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          `eval_${nextItem.id}`,
-          nextItem.id,
-          evalResult.dk1.isStandard ? 1 : 0,
-          evalResult.dk1.reason,
-          evalResult.dk2.isStandard ? 1 : 0,
-          evalResult.dk2.reason,
-          evalResult.businessResult,
-          evalResult.confidence,
-          evalResult.feedback,
-          evalNow
-        );
-
-        // Save Evidence Metadata with SHA-256 file hashes
-        if (scrapeRes.proofScreen1) {
-          const hash1 = computeFileHash(path.join(rootDir, 'public', scrapeRes.proofScreen1.replace(/^\//, '')));
-          db.prepare(`
-            INSERT OR REPLACE INTO evidence_files (id, job_id, job_item_id, platform, source_url, evidence_type, file_path, file_name, file_hash, captured_at, created_at)
-            VALUES (?, ?, ?, ?, ?, 'CONTENT', ?, ?, ?, ?, ?)
-          `).run(`ev1_${nextItem.id}`, jobId, nextItem.id, nextItem.platform, nextItem.source_url, scrapeRes.proofScreen1, path.basename(scrapeRes.proofScreen1), hash1, evalNow, evalNow);
-        }
-        if (scrapeRes.proofScreen2) {
-          const hash2 = computeFileHash(path.join(rootDir, 'public', scrapeRes.proofScreen2.replace(/^\//, '')));
-          db.prepare(`
-            INSERT OR REPLACE INTO evidence_files (id, job_id, job_item_id, platform, source_url, evidence_type, file_path, file_name, file_hash, captured_at, created_at)
-            VALUES (?, ?, ?, ?, ?, 'ENGAGEMENT', ?, ?, ?, ?, ?)
-          `).run(`ev2_${nextItem.id}`, jobId, nextItem.id, nextItem.platform, nextItem.source_url, scrapeRes.proofScreen2, path.basename(scrapeRes.proofScreen2), hash2, evalNow, evalNow);
-        }
-
-        // Finalize Item Completion
-        releaseItemLock(nextItem.id, 'COMPLETED', evalResult.businessResult, null, null);
-
-      } catch (itemErr) {
-        console.error(`[Worker] Error processing item ${nextItem.id}:`, itemErr);
-        const currentAttempt = nextItem.attempt_count + 1;
-        const maxAttempts = nextItem.max_attempts || 4;
-
-        if (currentAttempt < maxAttempts) {
-          const delayMs = getRetryDelayMs(currentAttempt);
-          releaseItemLock(nextItem.id, 'RETRYING', null, 'PROCESSING_ERROR', itemErr.message, delayMs);
-        } else {
-          // Technical error -> technical_status = PROCESSING_ERROR, business_result = null
-          releaseItemLock(nextItem.id, 'PROCESSING_ERROR', null, 'PROCESSING_ERROR', itemErr.message);
-        }
-      } finally {
-        clearInterval(heartbeatTimer);
-      }
-
-      // Update Job Statistics
-      const counts = db.prepare(`
-        SELECT 
-          COUNT(*) as total,
-          SUM(CASE WHEN technical_status = 'COMPLETED' THEN 1 ELSE 0 END) as processed,
-          SUM(CASE WHEN business_result = 'PASSED' THEN 1 ELSE 0 END) as passed,
-          SUM(CASE WHEN business_result = 'FAILED' THEN 1 ELSE 0 END) as failed,
-          SUM(CASE WHEN business_result = 'NEEDS_REVIEW' THEN 1 ELSE 0 END) as review,
-          SUM(CASE WHEN technical_status = 'PROCESSING_ERROR' THEN 1 ELSE 0 END) as error
-        FROM job_items WHERE job_id = ?
-      `).get(jobId);
-
-      db.prepare(`
-        UPDATE jobs 
-        SET processed_items = ?, passed_items = ?, failed_items = ?, review_items = ?, error_items = ?, updated_at = ?
-        WHERE id = ?
-      `).run(counts.processed || 0, counts.passed || 0, counts.failed || 0, counts.review || 0, counts.error || 0, new Date().toISOString(), jobId);
-    }
-
-    // Check final job state after loop completes
-    const finalJob = db.prepare(`SELECT status, total_items, processed_items FROM jobs WHERE id = ?`).get(jobId);
-    if (finalJob && finalJob.status === 'RUNNING') {
-      const remaining = db.prepare(`SELECT COUNT(*) as count FROM job_items WHERE job_id = ? AND technical_status IN ('PENDING', 'PROCESSING', 'RETRYING')`).get(jobId).count;
-      if (remaining === 0) {
-        db.prepare(`UPDATE jobs SET status = 'COMPLETED', completed_at = ?, updated_at = ? WHERE id = ?`).run(new Date().toISOString(), new Date().toISOString(), jobId);
-        createNotification('JOB_COMPLETED', 'SUCCESS', 'Job hoàn thành', `Job ${jobId} đã xử lý xong toàn bộ ${finalJob.total_items} mục.`, jobId);
-      }
-    }
-  })().catch(err => console.error('[Worker] Fatal error in job queue:', err));
+  triggerJobWorker(jobId);
 });
 
-// Get Job Status
-app.get('/api/jobs/:id', (req, res) => {
-  try {
-    const job = db.prepare(`SELECT * FROM jobs WHERE id = ?`).get(req.params.id);
-    if (!job) return res.status(404).json({ success: false, error: 'Job không tồn tại.' });
-    res.json(job);
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
+// Resume Job
+app.post('/api/jobs/:id/resume', (req, res) => {
+  const jobId = req.params.id;
+  db.prepare(`UPDATE jobs SET pause_requested = 0, status = 'RUNNING', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), jobId);
+  createAuditLog('USER', 'USER', 'RESUME_JOB', 'JOB', jobId);
+  createNotification('JOB_RESUMED', 'INFO', 'Đã tiếp tục Job', `Job ${jobId} đang tiếp tục xử lý các bài nộp còn lại.`, jobId);
+  res.json({ success: true, message: 'Đang khôi phục chạy Job...' });
+  triggerJobWorker(jobId);
 });
 
 // Get Job Items list
